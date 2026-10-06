@@ -8,7 +8,7 @@
 - 代码与版本：https://github.com/wutongyu223/gen-bei-song
 - 同步接口：https://gen-bei-song-api.gen-bei-song.workers.dev/api
 - D1：`gen-bei-song`。云端仅有本人鉴权可读取的练习记录和材料。
-- 当前 `production` 未绑定 R2：进度、文字和音频材料的练习位置均可同步，声音文件仍需各设备本地导入。以后本人开通 R2 并添加私有 bucket 绑定即可恢复音频上传。
+- 当前 `production` 未绑定 R2：进度、文字和音频材料的练习位置均可同步。三段私人精选李笑来音频通过 Worker 的 `PRIVATE_AUDIO` 绑定提供，已连接设备可直接加载；其他音频仍需本地导入。以后本人开通 R2 并添加私有 bucket 绑定即可恢复通用音频上传。
 - 静态网页只含公开的服务地址；连接密钥不在源码、构建、GitHub Actions 变量或 Release 文件中。
 
 ## 个人设备连接
@@ -33,7 +33,15 @@ npx wrangler deploy --env production
 
 5. 网页设置填 `https://your-worker.workers.dev/api` 和用户写入密钥。每台设备分别填写。Agent 单独配置只读密钥。
 
-首版连接密钥保存在设备浏览器的本地存储中；不要在共享设备保存。服务不提供多人账号。服务端默认全部材料需鉴权，素材不进入公开前端。示例古文原文与项目自写释义可以随静态构建发布；本地课程音频与家书全文包只在被忽略的 `media/`。
+首版连接密钥保存在设备浏览器的本地存储中；不要在共享设备保存。服务不提供多人账号。服务端默认全部材料需鉴权，素材不进入公开前端。示例古文原文与项目自写释义可以随静态构建发布；本地课程音频与家书全文包保存在被忽略的 `media/`，精选音频另行部署至受鉴权保护的 Worker。
+
+### 私人精选音频
+
+`media/private-audio/` 只存放选定片段，路径为 `audio/<材料 ID>/<版本>.mp3`；材料 JSON、来源、裁剪时间和校对状态另存于 `media/prepared/`。两者都不提交 Git，也不进入 Pages 或 Release。重新部署 production 前必须恢复该目录中的全部片段，以免已有材料失去音频。
+
+`run_worker_first: true` 让所有请求先进入 Worker。只有鉴权后的 `GET/HEAD /api/audio/<ID>/<版本>` 才调用音频绑定；原始 `/audio/...` 路径拒绝访问。音频返回 `private, no-store`，只读密钥可播放但不能替换。已准备的同一版本不能通过 PUT 覆盖。参见 [Cloudflare 绑定文档](https://developers.cloudflare.com/workers/static-assets/binding/) 和 [Worker 路由文档](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/)。
+
+`GET /api/health` 的 `preparedAudio` 仅表示精选播放能力，`audioSync` 仍为 false，表示通用音频上传未开通。当前三份精选仅用于跟读，机器字幕全部标为待校对，不作为逐字背诵原文。
 
 ## GitHub Pages 前端
 

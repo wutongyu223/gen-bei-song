@@ -17,6 +17,15 @@
     "production": {
       "name": "gen-bei-song-api",
       "workers_dev": true,
+      // Private clips must always pass through Worker authentication, including
+      // direct asset URLs and browser navigations. Never use asset-first routing.
+      "assets": {
+        "directory": "media/private-audio",
+        "binding": "PRIVATE_AUDIO",
+        "run_worker_first": true,
+        "html_handling": "none",
+        "not_found_handling": "none",
+      },
       "vars": {
         "ALLOWED_ORIGINS": "https://wutongyu223.github.io,http://127.0.0.1:5173,http://localhost:5173",
       },

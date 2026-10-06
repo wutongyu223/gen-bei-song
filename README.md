@@ -45,7 +45,7 @@ B 站下载属于准备阶段，可由 Agent 使用用户提供的具体链接�
 
 ## 线上发布
 
-参考 [部署步骤](docs/deployment.md)。前端支持 GitHub Pages；Worker、D1、R2 提供进度与受保护材料。线上网站：[跟背诵](https://wutongyu223.github.io/gen-bei-song/)。同步服务已经部署到 Cloudflare，支持进度与文字材料；音频存储 R2 尚未开通，音频仍由各设备导入。
+参考 [部署步骤](docs/deployment.md)。前端支持 GitHub Pages；Worker、D1、R2 提供进度与受保护材料。线上网站：[跟背诵](https://wutongyu223.github.io/gen-bei-song/)。同步服务支持进度与文字材料，另有三段私人精选李笑来音频，可在已连接的设备直接跟读。通用音频上传所需的 R2 尚未开通，其他音频可在设备上导入。
 
 - 用户写入与 Agent 只读密钥独立。
 - 更新正文或音频需提高材料版本，不覆盖旧内容。

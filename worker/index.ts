@@ -6,6 +6,7 @@ import { parseRange } from "./range";
 interface Env {
   DB: D1Database;
   AUDIO?: R2Bucket;
+  PRIVATE_AUDIO?: Fetcher;
   WRITE_TOKEN: string;
   READ_TOKEN: string;
   ALLOWED_ORIGINS: string;
@@ -62,7 +63,12 @@ async function handle(request: Request, env: Env) {
     path = url.pathname,
     method = request.method;
   if (path === "/api/health" && method === "GET")
-    return json({ ok: true, service: "跟背诵", audioSync: Boolean(env.AUDIO) });
+    return json({
+      ok: true,
+      service: "跟背诵",
+      audioSync: Boolean(env.AUDIO),
+      preparedAudio: Boolean(env.PRIVATE_AUDIO),
+    });
   const token =
     request.headers.get("Authorization")?.replace(/^Bearer /, "") || "";
   const write = await matches(token, env.WRITE_TOKEN),
@@ -214,12 +220,67 @@ async function handle(request: Request, env: Env) {
   }
   const audio = /^\/api\/audio\/([a-zA-Z0-9_-]{1,100})\/(\d+)$/.exec(path);
   if (audio) {
+    const [, id, v] = audio;
+    // Only this authenticated API route can reach the prepared assets binding.
+    // Never forward the original request or expose the raw /audio/ asset paths.
+    if (env.PRIVATE_AUDIO && ["GET", "HEAD", "PUT"].includes(method)) {
+      const range = request.headers.get("Range");
+      const prepared = await env.PRIVATE_AUDIO.fetch(
+        new Request(`https://private-audio.invalid/audio/${id}/${v}.mp3`, {
+          method: method === "PUT" ? "HEAD" : "GET",
+        }),
+      );
+      if (prepared.status !== 404) {
+        if (method === "PUT")
+          throw new ApiError(409, "此版本是已准备的音频，更换请增加版本号。");
+        const responseHeaders = new Headers(prepared.headers);
+        responseHeaders.set("Cache-Control", "private, no-store");
+        responseHeaders.set("Content-Type", "audio/mpeg");
+        if (prepared.status === 200) {
+          responseHeaders.set("Accept-Ranges", "bytes");
+          // Static assets ignore Range, so implement it for these bounded clips.
+          if (range) {
+            // The binding also omits Content-Length; use the actual bytes.
+            const bytes = await prepared.arrayBuffer();
+            const size = bytes.byteLength;
+            const selected = parseRange(range, size);
+            if (!selected) {
+              return new Response(null, {
+                status: 416,
+                headers: {
+                  "Content-Range": `bytes */${size}`,
+                  "Cache-Control": "private, no-store",
+                },
+              });
+            }
+            responseHeaders.set("Content-Length", String(selected.length));
+            responseHeaders.set(
+              "Content-Range",
+              `bytes ${selected.offset}-${selected.offset + selected.length - 1}/${size}`,
+            );
+            return new Response(
+              method === "HEAD"
+                ? null
+                : bytes.slice(
+                    selected.offset,
+                    selected.offset + selected.length,
+                  ),
+              { status: 206, headers: responseHeaders },
+            );
+          }
+        }
+        if (method === "HEAD") await prepared.body?.cancel();
+        return new Response(method === "HEAD" ? null : prepared.body, {
+          status: prepared.status,
+          headers: responseHeaders,
+        });
+      }
+    }
     if (!env.AUDIO)
       throw new ApiError(
         503,
         "当前已开通进度和文字同步。音频请先在设备上导入，云端音频存储尚未开通。",
       );
-    const [, id, v] = audio;
     const key = `${id}/${v}`;
     if (method === "PUT") {
       const m = await env.DB.prepare(
@@ -326,7 +387,7 @@ export default {
               : json({ error: "服务暂时不可用，请稍后重试。" }, 500);
       }
     const headers = new Headers(response.headers);
-    headers.set("Vary", "Origin");
+    headers.set("Vary", "Origin, Authorization");
     headers.set("X-Content-Type-Options", "nosniff");
     if (origin) {
       headers.set("Access-Control-Allow-Origin", origin);
