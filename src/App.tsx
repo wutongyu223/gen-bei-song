@@ -80,7 +80,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false),
     [notice, setNotice] = useState(""),
     [syncing, setSyncing] = useState(false);
-  const syncingRef = useRef(false);
+  const syncController = useRef<AbortController | null>(null);
   const materials = mergeMaterials(
     seeds,
     import.meta.env.DEV ? [localAudio] : [],
@@ -99,12 +99,24 @@ export default function App() {
     }
   };
   const sync = async (manual = false) => {
-    if (syncingRef.current || !canSync(stateRef.current.settings)) return;
-    syncingRef.current = true;
-    setSyncing(true);
+    if (!canSync(stateRef.current.settings) || document.hidden) return;
+    if (!navigator.onLine) {
+      if (manual) setNotice("当前离线，记录已留在此设备。联网后会再试。");
+      return;
+    }
+    if (syncController.current) {
+      if (!manual) return;
+      syncController.current.abort();
+    }
+    const controller = new AbortController();
+    syncController.current = controller;
+    // Routine background checks should not look like a never-ending upload.
+    setSyncing(manual);
     const snapshot = stateRef.current;
     try {
-      const remote = await synchronize(snapshot);
+      const remote = await synchronize(snapshot, controller.signal);
+      if (controller.signal.aborted || syncController.current !== controller)
+        return;
       const stored = update((current) => ({
         ...current,
         events: mergeEvents(current.events, remote.events),
@@ -125,25 +137,43 @@ export default function App() {
             : "记录已同步。",
         );
     } catch (e) {
-      if (manual) setNotice((e as Error).message);
+      if (manual && !controller.signal.aborted) setNotice((e as Error).message);
     } finally {
-      syncingRef.current = false;
-      setSyncing(false);
+      if (syncController.current === controller) {
+        syncController.current = null;
+        setSyncing(false);
+      }
     }
   };
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
   }, [state.settings.theme]);
   useEffect(() => {
+    setSyncing(false);
     void sync();
     const interval = setInterval(() => void sync(), 30000);
     const online = () => void sync();
+    const cancel = () => {
+      syncController.current?.abort();
+      syncController.current = null;
+      setSyncing(false);
+    };
+    const visibility = () => {
+      if (document.hidden) cancel();
+      else void sync();
+    };
     window.addEventListener("online", online);
+    window.addEventListener("offline", cancel);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
       clearInterval(interval);
       window.removeEventListener("online", online);
+      window.removeEventListener("offline", cancel);
+      document.removeEventListener("visibilitychange", visibility);
+      syncController.current?.abort();
+      syncController.current = null;
     };
-  }, []);
+  }, [state.settings.apiUrl, state.settings.token]);
   useEffect(() => {
     const change = (e: StorageEvent) => {
       if (e.key === "gbs-v1") {

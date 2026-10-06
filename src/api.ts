@@ -64,10 +64,52 @@ export async function api(
   }
   return response;
 }
-export async function synchronize(state: State): Promise<State> {
+export const SYNC_TIMEOUT_MS = 20_000;
+export async function synchronize(
+  state: State,
+  signal?: AbortSignal,
+): Promise<State> {
+  if (signal?.aborted) throw new DOMException("同步已取消。", "AbortError");
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout>;
+  let cancel: () => void;
+  const interrupted = new Promise<never>((_, reject) => {
+    cancel = () => {
+      controller.abort();
+      reject(new DOMException("同步已取消。", "AbortError"));
+    };
+    timer = setTimeout(() => {
+      timedOut = true;
+      cancel();
+    }, SYNC_TIMEOUT_MS);
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+  });
+  try {
+    // Bound the whole sync, including body reads and all pages, not only headers.
+    return await Promise.race([
+      synchronizeWithinDeadline(state, controller.signal),
+      interrupted,
+    ]);
+  } catch (e) {
+    if (timedOut)
+      throw new Error("同步等待太久，记录已留在此设备。可以稍后点一下重试。");
+    throw e;
+  } finally {
+    clearTimeout(timer!);
+    signal?.removeEventListener("abort", cancel!);
+  }
+}
+async function synchronizeWithinDeadline(
+  state: State,
+  signal: AbortSignal,
+): Promise<State> {
   const materials = z
     .object({ materials: z.array(materialSchema) })
-    .parse(await (await api(state.settings, "/materials")).json()).materials;
+    .parse(
+      await (await api(state.settings, "/materials", { signal })).json(),
+    ).materials;
   const available = new Set(
     [...seeds, localAudio, ...materials].map((m) => `${m.id}@${m.version}`),
   );
@@ -86,6 +128,7 @@ export async function synchronize(state: State): Promise<State> {
   const acknowledged: string[] = [];
   for (let i = 0; i < pending.length; i += 100) {
     const r = await api(state.settings, "/events", {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ events: pending.slice(i, i + 100) }),
@@ -98,16 +141,18 @@ export async function synchronize(state: State): Promise<State> {
   const remote: PracticeEvent[] = [];
   let cursor = 0;
   for (;;) {
-    const r = await api(state.settings, `/events?after=${cursor}`);
+    const r = await api(state.settings, `/events?after=${cursor}`, { signal });
     const data = z
       .object({
         events: z.array(eventSchema),
         hasMore: z.boolean(),
-        cursor: z.number(),
+        cursor: z.number().int().nonnegative(),
       })
       .parse(await r.json());
     remote.push(...data.events);
     if (!data.hasMore) break;
+    if (data.cursor <= cursor)
+      throw new Error("同步分页没有前进，记录已留在此设备。请稍后重试。");
     cursor = data.cursor;
   }
   return {
