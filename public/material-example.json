@@ -1,0 +1,6 @@
+{
+ "schemaVersion":1,"id":"my-reading","version":1,
+ "title":"我想读的这一段","author":"原作者","source":"用户提供的文件或链接",
+ "modules":["bei","song"],"visibility":"private",
+ "segments":[{"id":"p1","text":"请换成要练的原文。","translation":"请换成对应译文，可省略。","uncertain":false}]
+}

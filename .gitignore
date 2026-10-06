@@ -1,0 +1,19 @@
+.DS_Store
+node_modules/
+dist/
+# 下载的评书音频与练习录音体积大，不进 Git
+media/
+recordings/
+*.mp3
+*.m4a
+*.wav
+*.webm
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.wrangler/
+playwright-report/
+test-results/
+work/
