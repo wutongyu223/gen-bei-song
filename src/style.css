@@ -836,13 +836,13 @@ input[type="checkbox"] {
 }
 .mastery-button {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 13px;
   padding: 8px 13px;
   border-radius: 30px;
   background: var(--bg);
   color: var(--muted);
   border: 1px solid var(--line);
-  min-height: 40px;
+  min-height: 48px;
 }
 .mastery-button.is-mastered {
   color: var(--olive);
@@ -890,7 +890,8 @@ input[type="checkbox"] {
   right: 0;
   margin: auto;
   max-width: 950px;
-  padding: 20px 40px calc(20px + var(--safe-bottom));
+  padding: 20px calc(40px + var(--safe-right)) calc(20px + var(--safe-bottom))
+    calc(40px + var(--safe-left));
   background: var(--bg);
   border-top: 1px solid var(--line);
   z-index: 5;
@@ -1600,14 +1601,14 @@ input[type="checkbox"] {
     top: 34px;
   }
   .passage-index {
-    font-size: 9px;
+    font-size: 12px;
     margin-bottom: 9px;
   }
   .passage p {
     letter-spacing: 0.4px;
   }
   .mastery-button {
-    font-size: 10px;
+    font-size: 13px;
     padding: 9px 11px;
   }
   .translation {
@@ -1630,10 +1631,10 @@ input[type="checkbox"] {
     margin-left: 10px;
   }
   .practice-footer strong {
-    font-size: 11px;
+    font-size: 13px;
   }
   .practice-footer small {
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.6;
     max-width: 120px;
   }
@@ -1727,7 +1728,8 @@ input[type="checkbox"] {
   flex-wrap: wrap;
 }
 .practice-footer .session-bar button {
-  min-height: 44px;
+  min-height: 48px;
+  font-size: 13px;
 }
 .practice-footer .reading-tools {
   margin: 10px 0;
@@ -1739,15 +1741,17 @@ input[type="checkbox"] {
   margin-right: auto;
 }
 .practice-footer .segmented button {
-  min-height: 44px;
+  min-height: 48px;
+  min-width: 48px;
+  font-size: 13px;
   padding: 6px 14px;
 }
 .practice-footer .pill,
 .practice-footer .peek-button {
-  min-height: 44px;
+  min-height: 48px;
   padding: 8px 10px;
   margin: 0;
-  font-size: 11px;
+  font-size: 13px;
 }
 .practice-footer .finish-row {
   display: flex;
@@ -1858,20 +1862,22 @@ input[type="checkbox"] {
     transform-origin: center;
   }
   .practice-footer {
-    padding: 8px 16px calc(12px + var(--safe-bottom));
+    padding: 8px calc(16px + var(--safe-right)) calc(12px + var(--safe-bottom))
+      calc(16px + var(--safe-left));
   }
   .practice-footer .session-note {
-    font-size: 10px;
+    font-size: 12px;
     min-width: 70px;
   }
   .practice-footer .session-bar .text-button {
-    font-size: 11px;
+    font-size: 13px;
   }
   .practice-footer .timer {
     font-size: 16px;
   }
   .practice-footer .timer small {
-    display: none;
+    display: inline;
+    font-size: 12px;
   }
   .practice-footer .reading-tools {
     gap: 6px;
@@ -1880,7 +1886,7 @@ input[type="checkbox"] {
     padding: 6px 9px;
   }
   .practice-footer .finish-row .button {
-    font-size: 12px;
+    font-size: 13px;
     padding: 12px 16px;
   }
   .practice-footer .finish-row small {
@@ -1898,7 +1904,33 @@ input[type="checkbox"] {
   display: none;
 }
 .practice-page {
+  padding-top: calc(25px + var(--safe-top));
+  padding-left: calc(40px + var(--safe-left));
+  padding-right: calc(40px + var(--safe-right));
   padding-bottom: calc(var(--practice-dock-height, 230px) + 40px);
+}
+.practice-page button,
+.practice-page select {
+  min-height: 48px;
+  min-width: 48px;
+}
+.practice-top .text-button {
+  font-size: 13px;
+}
+.practice-footer .timer small {
+  display: inline;
+  margin: 0;
+}
+.session-note.reminder-due {
+  color: var(--rust);
+  font-weight: 600;
+}
+@media (max-width: 540px) {
+  .practice-page {
+    padding-top: calc(18px + var(--safe-top));
+    padding-left: calc(22px + var(--safe-left));
+    padding-right: calc(22px + var(--safe-right));
+  }
 }
 .practice-part {
   scroll-margin: 40px 0 calc(var(--practice-dock-height, 230px) + 30px);

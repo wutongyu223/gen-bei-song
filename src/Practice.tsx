@@ -17,6 +17,7 @@ import {
 import { api, audioBlob } from "./api";
 import { loadAudio, storeAudio, materialKey, type State } from "./storage";
 import { usePracticeClock } from "./usePracticeClock";
+import { draftKey, readPracticeDraft } from "./practiceDraft";
 const labels = { gen: "跟", bei: "背", song: "诵" };
 export function Practice({
   module,
@@ -24,6 +25,7 @@ export function Practice({
   state,
   save,
   onClose,
+  remember,
   changeSpeed,
 }: {
   module: Module;
@@ -31,6 +33,7 @@ export function Practice({
   state: State;
   save: (e: PracticeEvent) => boolean;
   onClose: () => void;
+  remember: () => void;
   changeSpeed: (n: number) => void;
 }) {
   const progress = progressFor(
@@ -40,25 +43,45 @@ export function Practice({
     material.version,
     material,
   );
+  const persistentDraftKey = draftKey(module, material);
+  const [draft] = useState(() =>
+    readPracticeDraft(persistentDraftKey, module, material, state.events),
+  );
+  const restored = draft
+    ? progressFor(
+        [...state.events, draft],
+        module,
+        material.id,
+        material.version,
+        material,
+      )
+    : progress;
   const timer = usePracticeClock(
     `gbs-draft:${module}:${materialKey(material)}`,
+    draft?.seconds ?? 0,
   );
-  const [startedAt] = useState(new Date().toISOString());
+  const [startedAt] = useState(draft?.startedAt ?? new Date().toISOString());
+  const [eventId] = useState(draft?.id ?? crypto.randomUUID());
+  const finished = useRef(false);
+  const remembered = useRef(false);
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
+  const [draftError, setDraftError] = useState("");
   const [resume] = useState({
     position: Math.min(
-      Math.floor(progress.position),
+      Math.floor(restored.position),
       material.segments.length - 1,
     ),
-    offset: progress.positionOffset,
+    offset: restored.positionOffset,
   });
   const [target] = useState(() =>
-    module === "bei" && state.settings.reviewSeconds > 0
+    !draft && module === "bei" && state.settings.reviewSeconds > 0
       ? reviewTarget(state.events, material)
       : null,
   );
   const [position, setPosition] = useState(
     module === "gen"
-      ? progress.position
+      ? restored.position
       : target
         ? material.segments.findIndex((s) => s.id === target.segmentId)
         : resume.position,
@@ -66,7 +89,7 @@ export function Practice({
   const [offset, setOffset] = useState(target?.start ?? resume.offset);
   const offsetRef = useRef(offset);
   offsetRef.current = offset;
-  const [masteredRanges, setMasteredRanges] = useState(progress.masteredRanges);
+  const [masteredRanges, setMasteredRanges] = useState(restored.masteredRanges);
   const [initialRanges] = useState(progress.masteredRanges);
   const [mode, setMode] = useState<"full" | "hint" | "hidden">(
     target ? "hidden" : "full",
@@ -109,6 +132,7 @@ export function Practice({
     [duration, setDuration] = useState(0),
     [playing, setPlaying] = useState(false),
     [subtitles, setSubtitles] = useState(false);
+  const [audioAttempt, setAudioAttempt] = useState(0);
   const [a, setA] = useState<number | null>(null),
     [b, setB] = useState<number | null>(null),
     [loop, setLoop] = useState(false),
@@ -119,6 +143,7 @@ export function Practice({
     positionRef = useRef(position);
   positionRef.current = position;
   const audioKey = materialKey(material);
+  const audioResume = useRef(restored.position);
   useEffect(() => {
     if (module !== "gen") return;
     let cancelled = false,
@@ -126,6 +151,9 @@ export function Practice({
     const controller = new AbortController();
     async function openAudio() {
       try {
+        setAudioError("");
+        setAudioUrl("");
+        setDownloadProgress("");
         let blob = await loadAudio(audioKey);
         if (
           !blob &&
@@ -139,7 +167,12 @@ export function Practice({
           if (!r.ok) throw new Error("本地示例音频尚未准备。");
           blob = await audioBlob(r, setDownloadProgress);
         }
-        if (!blob && material.audioFile) {
+        if (
+          !blob &&
+          material.audioFile &&
+          state.settings.apiUrl &&
+          (state.settings.apiUrl.startsWith("/") || state.settings.token)
+        ) {
           const r = await api(
             state.settings,
             `/audio/${material.id}/${material.version}`,
@@ -151,7 +184,10 @@ export function Practice({
             await storeAudio(audioKey, blob);
           } catch {}
         }
-        if (!blob) throw new Error("这份材料还没有音频。请到材料页导入音频。");
+        if (!blob)
+          throw new Error(
+            "本机还没有这份音频。请返回材料页，点击“附上本机音频”。",
+          );
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setAudioUrl(objectUrl);
@@ -165,7 +201,7 @@ export function Practice({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [audioKey]);
+  }, [audioKey, audioAttempt]);
   useEffect(() => {
     if (player.current) player.current.playbackRate = state.settings.speed;
   }, [state.settings.speed, audioUrl]);
@@ -175,7 +211,7 @@ export function Practice({
     let lastPaint = 0;
     const watch = () => {
       const p = player.current;
-      if (p) {
+      if (p && p.readyState >= 1) {
         positionRef.current = p.currentTime;
         const now = performance.now();
         if (now - lastPaint >= 150) {
@@ -196,7 +232,8 @@ export function Practice({
             gapTimer.current = setTimeout(() => {
               loopPaused.current = false;
               void p.play().catch((e) => {
-                if (e instanceof DOMException && e.name === "AbortError") return;
+                if (e instanceof DOMException && e.name === "AbortError")
+                  return;
                 setAudioError("请点击播放继续。");
               });
             }, gap * 1000);
@@ -229,6 +266,7 @@ export function Practice({
     scroll = false,
     keepReview = false,
   ) => {
+    setPeek(false);
     // A deliberate choice of another clause resumes normal practice at that choice.
     if (review && !keepReview) {
       setReview(false);
@@ -259,10 +297,7 @@ export function Practice({
     if (translation && dialog && !dialog.open) dialog.showModal();
     else if (!translation && dialog?.open) dialog.close();
   }, [translation]);
-  const finish = (completed: boolean) => {
-    timer.pause();
-    player.current?.pause();
-    if (gapTimer.current) clearTimeout(gapTimer.current);
+  const buildEvent = (completed: boolean): PracticeEvent | null => {
     const seconds = timer.value();
     const savedPosition =
       module !== "gen" && review ? resume.position : positionRef.current;
@@ -300,7 +335,7 @@ export function Practice({
     ) {
       const now = new Date();
       const e: PracticeEvent = {
-        id: crypto.randomUUID(),
+        id: eventId,
         kind: seconds > 0 || completed ? "practice" : "correction",
         module,
         materialId: material.id,
@@ -329,8 +364,51 @@ export function Practice({
           : {}),
         completed,
       };
-      if (!save(e)) return;
+      return e;
     }
+    return null;
+  };
+  const preserveDraft = () => {
+    if (finished.current) return;
+    const e = buildEvent(false);
+    try {
+      if (e) {
+        localStorage.setItem(persistentDraftKey, JSON.stringify(e));
+        if (!remembered.current) {
+          remembered.current = true;
+          rememberRef.current();
+        }
+      } else localStorage.removeItem(persistentDraftKey);
+    } catch {
+      setDraftError("设备空间不足，草稿暂时无法保存。请先保存并返回。");
+    }
+  };
+  const preserveDraftRef = useRef(preserveDraft);
+  preserveDraftRef.current = preserveDraft;
+  useEffect(() => {
+    preserveDraftRef.current();
+  }, [position, offset, masteredRanges, Math.floor(timer.seconds)]);
+  useEffect(() => {
+    const preserve = () => {
+      if (document.hidden) preserveDraftRef.current();
+    };
+    document.addEventListener("visibilitychange", preserve);
+    return () => document.removeEventListener("visibilitychange", preserve);
+  }, []);
+  const finish = (completed: boolean) => {
+    if (finished.current) return;
+    timer.pause();
+    player.current?.pause();
+    if (gapTimer.current) clearTimeout(gapTimer.current);
+    const e = buildEvent(completed);
+    if (e && !save(e)) {
+      preserveDraft();
+      return;
+    }
+    finished.current = true;
+    try {
+      localStorage.removeItem(persistentDraftKey);
+    } catch {}
     timer.reset();
     onClose();
   };
@@ -361,7 +439,9 @@ export function Practice({
         // Pausing while playback is still preparing rejects play() with AbortError.
         // The pause event already stopped the clock; this is a normal user action.
         if (e instanceof DOMException && e.name === "AbortError") return;
-        setAudioError("播放失败，请重新选择音频或点击重试。");
+        setAudioError(
+          "播放暂时失败，可以点击“重试播放”。仍无法播放时，请到材料页重新附上音频。",
+        );
       }
     }
   };
@@ -405,6 +485,11 @@ export function Practice({
               : "从上次的地方接着读，读过的也可以再读。"}
         </p>
       </header>
+      {draftError && (
+        <p className="notice" role="alert">
+          {draftError}
+        </p>
+      )}
       {module === "gen" ? (
         <>
           <section className="audio-room">
@@ -418,13 +503,28 @@ export function Practice({
               <div>跟</div>
             </div>
             <p className="subtle">跟不上字，先跟住气口和节奏。</p>
-            {audioError ? (
+            {audioError && (
               <div className="notice" role="alert">
                 {audioError}
+                <button
+                  className="pill"
+                  onClick={() => {
+                    if (player.current && audioUrl) {
+                      setAudioError("");
+                      audioResume.current = positionRef.current;
+                      setPlaying(false);
+                      player.current.load();
+                      void togglePlay();
+                    } else setAudioAttempt((n) => n + 1);
+                  }}
+                >
+                  {audioUrl ? "重试播放" : "重新加载音频"}
+                </button>
               </div>
-            ) : !audioUrl ? (
+            )}
+            {!audioUrl && !audioError ? (
               <p>正在准备音频… {downloadProgress}</p>
-            ) : (
+            ) : audioUrl ? (
               <audio
                 ref={player}
                 src={audioUrl}
@@ -432,7 +532,7 @@ export function Practice({
                   const p = player.current!;
                   setDuration(p.duration);
                   p.currentTime = Math.min(
-                    progress.position,
+                    audioResume.current,
                     Math.max(0, p.duration - 1),
                   );
                 }}
@@ -450,11 +550,15 @@ export function Practice({
                   setPlaying(false);
                   timer.pause();
                 }}
-                onError={() =>
-                  setAudioError("音频无法播放，请换用 MP3 或 M4A 文件。")
-                }
+                onError={() => {
+                  setPlaying(false);
+                  timer.pause();
+                  setAudioError(
+                    "音频无法播放，请到材料页换用 MP3 或 M4A 文件。",
+                  );
+                }}
               />
-            )}
+            ) : null}
             <div className="seek-row">
               <span>{clockLabel(position)}</span>
               <input
@@ -622,16 +726,22 @@ export function Practice({
                           )}
                         <p
                           className={
-                            module === "bei" && mode === "hidden" && !peek
+                            module === "bei" &&
+                            mode === "hidden" &&
+                            !(peek && current)
                               ? "hidden-passage"
                               : ""
                           }
                         >
-                          {module === "bei" && !peek && mode === "hidden"
+                          {module === "bei" &&
+                          !(peek && current) &&
+                          mode === "hidden"
                             ? split
                               ? "试着回忆这一小句。"
                               : "试着回忆这一段。"
-                            : module === "bei" && !peek && mode === "hint"
+                            : module === "bei" &&
+                                !(peek && current) &&
+                                mode === "hint"
                               ? hints(unit.text)
                               : unit.text}
                         </p>
@@ -719,7 +829,10 @@ export function Practice({
           <span className="timer" aria-label="练习时长">
             {clockLabel(timer.seconds)} <small>/ 05:00</small>
           </span>
-          <span className="session-note" role="status">
+          <span
+            className={`session-note ${timer.seconds >= 300 ? "reminder-due" : ""}`}
+            role="status"
+          >
             {timer.seconds >= 300
               ? "五分钟到了，把这一句说完就好。"
               : review

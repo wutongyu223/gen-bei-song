@@ -4,6 +4,10 @@ import { mergeEvents, type PracticeEvent } from "./domain";
 import type { Settings, State } from "./storage";
 import { mergeMaterials } from "./storage";
 import { seeds, localAudio } from "./seeds";
+export const canSync = (settings: Settings) =>
+  Boolean(
+    settings.apiUrl && (settings.apiUrl.startsWith("/") || settings.token),
+  );
 export async function audioBlob(
   response: Response,
   onProgress: (text: string) => void,
@@ -37,10 +41,16 @@ export async function api(
     throw new Error("尚未连接同步服务，记录已保存在此设备。");
   const headers = new Headers(init.headers);
   if (settings.token) headers.set("Authorization", `Bearer ${settings.token}`);
-  const response = await fetch(settings.apiUrl.replace(/\/$/, "") + path, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(settings.apiUrl.replace(/\/$/, "") + path, {
+      ...init,
+      headers,
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    throw new Error("暂时连不上同步服务，记录已留在此设备。联网后会再试。");
+  }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403)
       throw new Error("连接密钥无效或权限不足，请检查同步设置。");

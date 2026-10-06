@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-export function usePracticeClock(key: string) {
-  const [seconds, setSeconds] = useState(() =>
-    Number(sessionStorage.getItem(key) || 0),
+export function usePracticeClock(key: string, restoredSeconds?: number) {
+  const [seconds, setSeconds] = useState(
+    () => restoredSeconds ?? Number(sessionStorage.getItem(key) || 0),
   );
   const [running, setRunning] = useState(false);
   const base = useRef(seconds),
@@ -71,6 +71,11 @@ export function usePracticeClock(key: string) {
     start,
     pause,
     reset,
-    value: () => Math.floor(current.current),
+    value: () =>
+      Math.floor(
+        began.current
+          ? base.current + (performance.now() - began.current) / 1000
+          : current.current,
+      ),
   };
 }

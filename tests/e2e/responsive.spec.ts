@@ -101,6 +101,67 @@ test("tablet rail changes destinations and disappears during practice", async ({
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
 
+test("reading controls remain large and reachable within home-screen safe areas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator(".practice-card.bei").getByRole("button").click();
+  await page.getByRole("button", { name: "隐藏", exact: true }).click();
+  const windows = [
+    { width: 402, height: 874, top: 62, bottom: 34, left: 0, right: 0 },
+    { width: 360, height: 640, top: 24, bottom: 24, left: 0, right: 0 },
+    { width: 874, height: 402, top: 0, bottom: 21, left: 62, right: 62 },
+    { width: 768, height: 1024, top: 24, bottom: 24, left: 0, right: 0 },
+  ];
+  for (const view of windows) {
+    await page.setViewportSize(view);
+    const style = await page.addStyleTag({
+      content: `:root { --safe-top:${view.top}px; --safe-bottom:${view.bottom}px; --safe-left:${view.left}px; --safe-right:${view.right}px; }`,
+    });
+    const controls = page.locator(".practice-footer button");
+    for (const button of await controls.all()) {
+      expect(
+        await button.evaluate((el, safe) => {
+          const r = el.getBoundingClientRect(),
+            hit = document.elementFromPoint(
+              r.x + r.width / 2,
+              r.y + r.height / 2,
+            );
+          return (
+            r.width >= 48 &&
+            r.height >= 48 &&
+            r.left >= safe.left &&
+            r.right <= innerWidth - safe.right &&
+            r.top >= safe.top &&
+            r.bottom <= innerHeight - safe.bottom &&
+            (el === hit || el.contains(hit))
+          );
+        }, view),
+        `${view.width}×${view.height} ${await button.textContent()}`,
+      ).toBe(true);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page
+      .getByRole("button", { name: "保存并返回" })
+      .scrollIntoViewIfNeeded();
+    expect(
+      (await page.getByRole("button", { name: "保存并返回" }).boundingBox())!.y,
+    ).toBeGreaterThanOrEqual(view.top);
+    expect(
+      await page
+        .locator(".mastery-button")
+        .first()
+        .evaluate((el) => getComputedStyle(el).fontSize),
+    ).toBe("13px");
+    await expect(page.locator(".timer small")).toBeVisible();
+    await style.evaluate((el) => el.parentNode?.removeChild(el));
+  }
+});
+
 test("home screen manifest resolves inside the project and supplies app icons", async ({
   page,
   request,

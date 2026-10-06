@@ -32,6 +32,16 @@ export const defaults: Settings = {
     : import.meta.env.VITE_SYNC_API_URL || "",
   token: "",
 };
+export function tokenFromConnectionLink(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!["https:", "http:"].includes(url.protocol)) return null;
+    const token = new URLSearchParams(url.hash.slice(1)).get("connect");
+    return token && /^[a-f0-9]{64}$/.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
 function connect(s: State): State {
   const token = new URLSearchParams(location.hash.slice(1)).get("connect");
   if (!token || !/^[a-f0-9]{64}$/.test(token) || !defaults.apiUrl) return s;

@@ -40,11 +40,14 @@ test("readable home, partial mastery, hidden text, persisted resume and translat
     }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "看原文核对", exact: true }).click();
+  await expect(page.locator(".current-part p")).not.toHaveClass(
+    /hidden-passage/,
+  );
   await expect(
     page.getByText("孙子曰：兵者，国之大事，死生之地，存亡之道，不可不察也。", {
       exact: true,
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await page.waitForTimeout(1200);
   await page.getByRole("button", { name: "今天练到这里" }).click();
   await expect(page.getByText("已背准 2 段", { exact: false })).toBeVisible();

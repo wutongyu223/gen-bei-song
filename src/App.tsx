@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { publishMaterial, synchronize } from "./api";
+import { canSync, publishMaterial, synchronize } from "./api";
 import {
   dayKey,
   mergeEvents,
@@ -17,6 +17,7 @@ import {
   readState,
   saveState,
   storeAudio,
+  tokenFromConnectionLink,
   type State,
   type Settings,
 } from "./storage";
@@ -97,19 +98,14 @@ export default function App() {
       return false;
     }
   };
-  const sync = async () => {
-    if (syncingRef.current || !stateRef.current.settings.apiUrl) return;
-    if (
-      !stateRef.current.settings.apiUrl.startsWith("/") &&
-      !stateRef.current.settings.token
-    )
-      return;
+  const sync = async (manual = false) => {
+    if (syncingRef.current || !canSync(stateRef.current.settings)) return;
     syncingRef.current = true;
     setSyncing(true);
     const snapshot = stateRef.current;
     try {
       const remote = await synchronize(snapshot);
-      update((current) => ({
+      const stored = update((current) => ({
         ...current,
         events: mergeEvents(current.events, remote.events),
         materials: mergeMaterials(current.materials, remote.materials),
@@ -122,9 +118,14 @@ export default function App() {
         lastSync: remote.lastSync,
         waitingMaterials: remote.waitingMaterials,
       }));
-      setNotice("");
+      if (manual && stored)
+        setNotice(
+          remote.waitingMaterials.length
+            ? "可同步的记录已保存。私人材料的记录需先在材料页同步材料。"
+            : "记录已同步。",
+        );
     } catch (e) {
-      setNotice((e as Error).message);
+      if (manual) setNotice((e as Error).message);
     } finally {
       syncingRef.current = false;
       setSyncing(false);
@@ -247,7 +248,7 @@ export default function App() {
                 setSettingsOpen(true);
               else {
                 if (state.waitingMaterials.length) setTab("library");
-                void sync();
+                void sync(true);
               }
             }}
             title={
@@ -295,6 +296,14 @@ export default function App() {
           state={state}
           save={record}
           onClose={() => setPractice(null)}
+          remember={() => {
+            const { module, material } = practice;
+            if (stateRef.current.selected[module] !== materialKey(material))
+              update((s) => ({
+                ...s,
+                selected: { ...s.selected, [module]: materialKey(material) },
+              }));
+          }}
           changeSpeed={(speed) =>
             setSettings({ ...stateRef.current.settings, speed })
           }
@@ -383,7 +392,11 @@ export default function App() {
                           className="card-start"
                           onClick={() => start(module)}
                         >
-                          {p?.last ? "继续练习" : info[module].verb}
+                          {p?.last
+                            ? "继续练习"
+                            : m
+                              ? info[module].verb
+                              : "导入音频材料"}
                           <span>↗</span>
                         </button>
                       </article>
@@ -443,7 +456,7 @@ export default function App() {
           state={state}
           onClose={() => setSettingsOpen(false)}
           onSave={setSettings}
-          onSync={() => void sync()}
+          onSync={() => void sync(true)}
           update={update}
           notify={setNotice}
         />
@@ -470,6 +483,45 @@ function Library({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const audioFileRef = useRef<HTMLInputElement>(null);
+  const attaching = useRef<Material | null>(null);
+  const [localAudioKeys, setLocalAudioKeys] = useState<Set<string>>(new Set());
+  const keys = materials
+    .filter((m) => m.modules.includes("gen"))
+    .map(materialKey)
+    .join("|");
+  useEffect(() => {
+    let cancelled = false;
+    const audioKeys = keys ? keys.split("|") : [];
+    void Promise.all(
+      audioKeys.map(async (key) => {
+        try {
+          return (await loadAudio(key)) ? key : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((found) => {
+      if (!cancelled)
+        setLocalAudioKeys(new Set(found.filter((key) => key !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [keys]);
+  const attachAudio = async (file: File) => {
+    const m = attaching.current;
+    if (!m) return;
+    try {
+      if (file.size > 50 * 1024 * 1024)
+        throw new Error("请先把音频裁成练习片段（上限 50 MB）。");
+      await storeAudio(materialKey(m), file);
+      setLocalAudioKeys((old) => new Set([...old, materialKey(m)]));
+      notify("音频已附在本机，可以接着跟读。材料版本和练习进度保留。");
+    } catch (e) {
+      notify((e as Error).message);
+    }
+  };
   const open = async (file: File) => {
     try {
       const parsed = materialSchema.parse(JSON.parse(await file.text()));
@@ -489,11 +541,22 @@ function Library({
     try {
       if (audio && audio.size > 50 * 1024 * 1024)
         throw new Error("请先把音频裁成练习片段（上限 50 MB）。");
-      const m = audio ? { ...candidate, audioFile: audio.name } : candidate;
-      const existing = materials.find((x) => materialKey(x) === materialKey(m));
-      if (existing && JSON.stringify(existing) !== JSON.stringify(m))
+      const existing = materials.find(
+        (x) => materialKey(x) === materialKey(candidate),
+      );
+      if (
+        existing &&
+        JSON.stringify({ ...existing, audioFile: undefined }) !==
+          JSON.stringify({ ...candidate, audioFile: undefined })
+      )
         throw new Error("这个材料版本已存在不同内容，请增加版本号。");
-      if (audio) await storeAudio(materialKey(m), audio);
+      const m =
+        existing ??
+        (audio ? { ...candidate, audioFile: audio.name } : candidate);
+      if (audio) {
+        await storeAudio(materialKey(m), audio);
+        setLocalAudioKeys((old) => new Set([...old, materialKey(m)]));
+      }
       const published = upload
         ? await publishMaterial(
             state.settings,
@@ -590,7 +653,12 @@ function Library({
             </div>
             <h2>{m.title}</h2>
             <p>
-              {m.segments.length} 段 · {m.audioFile ? "有音频" : "文字材料"}
+              {m.segments.length} 段 ·{" "}
+              {m.modules.includes("gen")
+                ? localAudioKeys.has(materialKey(m))
+                  ? "本机已附音频"
+                  : "本机未附音频"
+                : "文字材料"}
             </p>
             <p className="source-note">{m.source}</p>
             {state.waitingMaterials.includes(materialKey(m)) && (
@@ -600,6 +668,19 @@ function Library({
               </p>
             )}
             <div className="library-actions">
+              {m.modules.includes("gen") && (
+                <button
+                  className="pill"
+                  onClick={() => {
+                    attaching.current = m;
+                    audioFileRef.current?.click();
+                  }}
+                >
+                  {localAudioKeys.has(materialKey(m))
+                    ? "更换本机音频"
+                    : "附上本机音频"}
+                </button>
+              )}
               {m.modules.map((module) => (
                 <div key={module}>
                   <button
@@ -638,6 +719,18 @@ function Library({
           </article>
         ))}
       </div>
+      <input
+        ref={audioFileRef}
+        type="file"
+        accept="audio/*,.mp3,.m4a"
+        hidden
+        aria-label="附上本机音频文件"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void attachAudio(file);
+          e.target.value = "";
+        }}
+      />
       <div className="preparation-note">
         <h3>让 AI 准备一份材料包</h3>
         <p>
@@ -693,11 +786,11 @@ function Library({
               <input
                 type="checkbox"
                 checked={upload}
-                disabled={!state.settings.apiUrl}
+                disabled={!canSync(state.settings)}
                 onChange={(e) => setUpload(e.target.checked)}
               />
               同时上传到我的同步服务
-              {!state.settings.apiUrl && "（先在设置中连接）"}
+              {!canSync(state.settings) && "（先在设置中连接）"}
             </label>
             {error && (
               <p role="alert" className="notice">
@@ -1061,16 +1154,22 @@ function SettingsDialog({
               />
             </label>
             <label>
-              我的连接密钥
+              我的连接密钥或私人连接链接
               <input
                 type="password"
                 autoComplete="off"
                 value={draft.token}
-                onChange={(e) => set("token", e.target.value.trim())}
+                onChange={(e) => {
+                  const value = e.target.value.trim();
+                  set("token", tokenFromConnectionLink(value) ?? value);
+                }}
               />
             </label>
             <p className="subtle">
               Agent 使用另一枚只读密钥。密钥不随备份导出。
+            </p>
+            <p className="subtle">
+              从主屏幕图标进入后，如果还未连接，可在这里粘贴私人连接链接。音频请在当前应用里附上。
             </p>
             <div className="backup-actions">
               <button className="pill" onClick={exportData}>
