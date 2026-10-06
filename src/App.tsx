@@ -301,7 +301,9 @@ export default function App() {
         />
       ) : (
         <>
-          <main className="main-content">
+          <main
+            className={`main-content ${tab === "today" ? "today-content" : ""}`}
+          >
             {tab === "today" ? (
               <>
                 <section className="hero">
@@ -318,7 +320,7 @@ export default function App() {
                       把五分钟留给自己。
                     </p>
                   </div>
-                  <div className="hero-art">
+                  <div className="hero-art" aria-hidden="true">
                     <div className="sun-disc" />
                     <Sprig />
                     <span>日有所习</span>
@@ -363,8 +365,12 @@ export default function App() {
                           {info[module].description}
                         </p>
                         <div className="card-material">
-                          <small>{m?.author ?? "准备你的材料"}</small>
-                          <h3>{m?.title ?? "选一段喜欢的声音"}</h3>
+                          <small title={m?.author}>
+                            {m?.author ?? "准备你的材料"}
+                          </small>
+                          <h3 title={m?.title}>
+                            {m?.title ?? "选一段喜欢的声音"}
+                          </h3>
                           <p>
                             {m
                               ? p?.last
@@ -422,6 +428,7 @@ export default function App() {
               <button
                 key={t.id}
                 className={tab === t.id ? "active" : ""}
+                aria-current={tab === t.id ? "page" : undefined}
                 onClick={() => setTab(t.id)}
               >
                 <span>{t.icon}</span>

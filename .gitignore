@@ -17,3 +17,6 @@ recordings/
 playwright-report/
 test-results/
 work/
+# Project-owned app icons (override a system-wide macOS Icon? ignore rule).
+!public/icons/
+!public/icons/*.png

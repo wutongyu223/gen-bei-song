@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "跟背诵 · 每天一点",
+  "short_name": "跟背诵",
+  "lang": "zh-CN",
+  "description": "每天一点跟、背、诵，从上次停下的地方继续。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f3ec",
+  "theme_color": "#f6f3ec",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
