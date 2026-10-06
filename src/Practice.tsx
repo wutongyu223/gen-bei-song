@@ -195,7 +195,10 @@ export function Practice({
             p.pause();
             gapTimer.current = setTimeout(() => {
               loopPaused.current = false;
-              void p.play().catch(() => setAudioError("请点击播放继续。"));
+              void p.play().catch((e) => {
+                if (e instanceof DOMException && e.name === "AbortError") return;
+                setAudioError("请点击播放继续。");
+              });
             }, gap * 1000);
           }
         }
@@ -354,8 +357,10 @@ export function Practice({
     } else {
       try {
         await p.play();
-        timer.start();
-      } catch {
+      } catch (e) {
+        // Pausing while playback is still preparing rejects play() with AbortError.
+        // The pause event already stopped the clock; this is a normal user action.
+        if (e instanceof DOMException && e.name === "AbortError") return;
         setAudioError("播放失败，请重新选择音频或点击重试。");
       }
     }

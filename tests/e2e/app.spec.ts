@@ -81,14 +81,20 @@ test("continuous audio, speed and loop controls", async ({ page }) => {
       .evaluate((a: HTMLAudioElement) => a.playbackRate),
   ).toBe(0.8);
   await page.getByText("练一个困难片段", { exact: false }).click();
+  await page.getByRole("button", { name: "暂停播放" }).click();
+  await page.locator("audio").evaluate((a: HTMLAudioElement) => {
+    a.currentTime = 0;
+  });
+  await expect.poll(() => page.getByLabel("音频位置").inputValue()).toBe("0");
   await page.getByRole("button", { name: "设起点" }).click();
   await page.locator("audio").evaluate((a: HTMLAudioElement) => {
     a.currentTime = 1.2;
   });
-  await page.waitForTimeout(100);
+  await expect.poll(() => page.getByLabel("音频位置").inputValue()).toBe("1.2");
   await page.getByRole("button", { name: "设终点" }).click();
   await page.getByRole("button", { name: "开始循环", exact: true }).click();
   await expect(page.getByRole("button", { name: "关闭循环" })).toBeVisible();
+  await page.getByRole("button", { name: "播放音频" }).click();
   await page.waitForTimeout(1800);
   expect(
     await page
